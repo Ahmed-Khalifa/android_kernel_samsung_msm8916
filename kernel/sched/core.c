@@ -2786,7 +2786,7 @@ out:
 		 * leave kernel.
 		 */
 		if (p->mm && printk_ratelimit()) {
-			printk_sched("process %d (%s) no longer affine to cpu%d\n",
+			printk_deferred("process %d (%s) no longer affine to cpu%d\n",
 					task_pid_nr(p), p->comm, cpu);
 		}
 	}
@@ -3165,7 +3165,7 @@ static void try_to_wake_up_local(struct task_struct *p)
 	struct rq *rq = task_rq(p);
 
 	if (rq != this_rq() || p == current) {
-		printk_sched("%s: Failed to wakeup task %d (%s), rq = %p, this_rq = %p, p = %p, current = %p\n",
+		printk_deferred("%s: Failed to wakeup task %d (%s), rq = %p, this_rq = %p, p = %p, current = %p\n",
 			__func__, task_pid_nr(p), p->comm, rq,
 			this_rq(), p, current);
 		return;
@@ -4377,6 +4377,20 @@ unsigned long long task_sched_runtime(struct task_struct *p)
 	unsigned long flags;
 	struct rq *rq;
 	u64 ns = 0;
+
+#if defined(CONFIG_64BIT) && defined(CONFIG_SMP)
+ /*
+	* 64-bit doesn't need locks to atomically read a 64bit value.
+	* So we have a optimization chance when the task's delta_exec is 0.
+	* Reading ->on_cpu is racy, but this is ok.
+	*
+	* If we race with it leaving cpu, we'll take a lock. So we're correct.
+	* If we race with it entering cpu, unaccounted time is 0. This is
+	* indistinguishable from the read occurring a few cycles earlier.
+	*/
+ if (!p->on_cpu)
+ return p->se.sum_exec_runtime;
+#endif
 
 	rq = task_rq_lock(p, &flags);
 	ns = p->se.sum_exec_runtime + do_task_delta_exec(p, rq);
